@@ -41,6 +41,8 @@ import static org.apache.kafka.common.protocol.types.Type.INT64;
 
 /**
  * This wrapper supports both v0 and v1 of ProduceResponse.
+ *
+ * TODO 生产消息请求响应协议
  */
 public class ProduceResponse extends AbstractResponse {
 

@@ -67,6 +67,8 @@ import static org.apache.kafka.common.requests.FetchMetadata.INVALID_SESSION_ID;
  * - {@link Errors#UNSUPPORTED_COMPRESSION_TYPE} If a fetched topic is using a compression type which is
  *     not supported by the fetch request version
  * - {@link Errors#UNKNOWN_SERVER_ERROR} For any unexpected errors
+ *
+ * TODO 获取消息请求响应协议
  */
 public class FetchResponse<T extends BaseRecords> extends AbstractResponse {
 
