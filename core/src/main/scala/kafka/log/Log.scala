@@ -184,10 +184,12 @@ object RollParams {
 /**
  * An append-only log for storing messages.
  *
- * The log is a sequence of LogSegments, each with a base offset denoting the first message in the segment.
+ * The log is a sequence of LogSegments, each with a base offset （起始位移） denoting( [dɪˈnəʊtɪŋ]指示) the first message in the segment.
  *
  * New log segments are created according to a configurable policy that controls the size in bytes or time interval
  * for a given segment.
+ *
+ * TODO kafka主题的每个分区对应一个 Log 对象，一个 Log 对象对应物理磁盘的一个子目录
  *
  * @param dir The directory in which log segments are created.
  * @param config The log configuration settings

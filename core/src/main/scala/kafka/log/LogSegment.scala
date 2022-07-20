@@ -43,6 +43,7 @@ import scala.math._
  *
  * A segment with a base offset of [base_offset] would be stored in two files, a [base_offset].index and a [base_offset].log file.
  *
+ * TODO 保存消息的最小载体
  * @param log The file records containing log entries
  * @param lazyOffsetIndex The offset index
  * @param lazyTimeIndex The timestamp index
@@ -53,10 +54,10 @@ import scala.math._
  * @param time The time instance
  */
 @nonthreadsafe
-class LogSegment private[log] (val log: FileRecords,
-                               val lazyOffsetIndex: LazyIndex[OffsetIndex],
-                               val lazyTimeIndex: LazyIndex[TimeIndex],
-                               val txnIndex: TransactionIndex,
+class LogSegment private[log] (val log: FileRecords,  // 消息日志文件
+                               val lazyOffsetIndex: LazyIndex[OffsetIndex], // 位移索引文件
+                               val lazyTimeIndex: LazyIndex[TimeIndex], // 时间戳索引文件
+                               val txnIndex: TransactionIndex,  // 已中止事务索引文件
                                val baseOffset: Long,
                                val indexIntervalBytes: Int,
                                val rollJitterMs: Long,
@@ -66,6 +67,11 @@ class LogSegment private[log] (val log: FileRecords,
 
   def timeIndex: TimeIndex = lazyTimeIndex.get
 
+  /**
+   * TODO 判断是否需要滚动切分日志
+   * @param rollParams
+   * @return
+   */
   def shouldRoll(rollParams: RollParams): Boolean = {
     val reachedRollMs = timeWaitedForRoll(rollParams.now, rollParams.maxTimestampInMessages) > rollParams.maxSegmentMs - rollJitterMs
     size > rollParams.maxSegmentBytes - rollParams.messagesSize ||
@@ -133,9 +139,9 @@ class LogSegment private[log] (val log: FileRecords,
    *
    * It is assumed this method is being called from within a lock.
    *
-   * @param largestOffset The last offset in the message set
-   * @param largestTimestamp The largest timestamp in the message set.
-   * @param shallowOffsetOfMaxTimestamp The offset of the message that has the largest timestamp in the messages to append.
+   * @param largestOffset The last offset in the message set 消息集中最大位移值
+   * @param largestTimestamp The largest timestamp in the message set.  消息集中最大时间戳
+   * @param shallowOffsetOfMaxTimestamp The offset of the message that has the largest timestamp in the messages to append. 最大时间戳对应消息的位移
    * @param records The log entries to append.
    * @return the physical position in the file of the appended records
    * @throws LogSegmentOffsetOverflowException if the largest offset causes index offset overflow
@@ -145,13 +151,17 @@ class LogSegment private[log] (val log: FileRecords,
              largestTimestamp: Long,
              shallowOffsetOfMaxTimestamp: Long,
              records: MemoryRecords): Unit = {
+    // TODO 检查消息集是否为空
     if (records.sizeInBytes > 0) {
       trace(s"Inserting ${records.sizeInBytes} bytes at end offset $largestOffset at position ${log.sizeInBytes} " +
             s"with largest timestamp $largestTimestamp at shallow offset $shallowOffsetOfMaxTimestamp")
+      // TODO 获取日志段大小
       val physicalPosition = log.sizeInBytes()
+      // TODO 判断日志段是否为空
       if (physicalPosition == 0)
         rollingBasedTimestamp = Some(largestTimestamp)
 
+      // TODO 确保最大位移值
       ensureOffsetInRange(largestOffset)
 
       // append the messages
@@ -672,6 +682,9 @@ object LogSegment {
   }
 }
 
+/**
+ * TODO 负责日志落盘计时
+ */
 object LogFlushStats extends KafkaMetricsGroup {
   val logFlushTimer = new KafkaTimer(newTimer("LogFlushRateAndTimeMs", TimeUnit.MILLISECONDS, TimeUnit.SECONDS))
 }
