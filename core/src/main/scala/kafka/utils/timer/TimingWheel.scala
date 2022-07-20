@@ -95,6 +95,9 @@ import java.util.concurrent.atomic.AtomicInteger
  *
  * This class is not thread-safe. There should not be any add calls while advanceClock is executing.
  * It is caller's responsibility to enforce it. Simultaneous add calls are thread-safe.
+ *
+ * TODO 时间轮，用来执行TimerTaskEntry的插入删除，但是采用JDK的DelayQueue来执行时间推荐，
+ *  之所有不用DelayQueue来增删TimerTaskEntry，因DelayQueue效率太低了
  */
 @nonthreadsafe
 private[timer] class TimingWheel(tickMs: Long, wheelSize: Int, startMs: Long, taskCounter: AtomicInteger, queue: DelayQueue[TimerTaskList]) {

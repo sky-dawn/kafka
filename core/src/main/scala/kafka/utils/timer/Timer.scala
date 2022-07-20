@@ -34,19 +34,20 @@ trait Timer {
   /**
     * Advance the internal clock, executing any tasks whose expiration has been
     * reached within the duration of the passed timeout.
+    * 提前内部时钟，在超时时间内执行任何已经到期的任务
     * @param timeoutMs
-    * @return whether or not any tasks were executed
+    * @return whether or not any tasks were executed 是否有任何任务被执行
     */
   def advanceClock(timeoutMs: Long): Boolean
 
   /**
-    * Get the number of tasks pending execution
+    * Get the number of tasks pending execution 获取待执行任务的数量
     * @return the number of tasks
     */
   def size: Int
 
   /**
-    * Shutdown the timer service, leaving pending tasks unexecuted
+    * Shutdown the timer service, leaving pending tasks unexecuted 关闭定时器，未执行的任务将不再执行
     */
   def shutdown(): Unit
 }
@@ -63,6 +64,7 @@ class SystemTimer(executorName: String,
       KafkaThread.nonDaemon("executor-"+executorName, runnable)
   })
 
+  // TODO TimerTaskList放入DelayQueue,
   private[this] val delayQueue = new DelayQueue[TimerTaskList]()
   private[this] val taskCounter = new AtomicInteger(0)
   private[this] val timingWheel = new TimingWheel(
