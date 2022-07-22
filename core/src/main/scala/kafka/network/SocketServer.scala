@@ -746,6 +746,7 @@ private[kafka] class Processor(val id: Int,
   // TODO 接收新连接的阻塞队列，默认队列大小为： 20
   private val newConnections = new ArrayBlockingQueue[SocketChannel](connectionQueueSize)
   private val inflightResponses = mutable.Map[String, RequestChannel.Response]()
+  // 响应队列
   private val responseQueue = new LinkedBlockingDeque[RequestChannel.Response]()
 
   private[kafka] val metricTags = mutable.LinkedHashMap(
@@ -769,6 +770,7 @@ private[kafka] class Processor(val id: Int,
   private val expiredConnectionsKilledCountMetricName = metrics.metricName("expired-connections-killed-count", "socket-server-metrics", metricTags)
   metrics.addMetric(expiredConnectionsKilledCountMetricName, expiredConnectionsKilledCount)
 
+  // TODO 创建 selector
   private val selector = createSelector(
     ChannelBuilders.serverChannelBuilder(listenerName,
       listenerName == config.interBrokerListenerName,
@@ -809,8 +811,9 @@ private[kafka] class Processor(val id: Int,
       while (isRunning) {
         try {
           // setup any new connections that have been queued up
+          // 配置新的连接，并将channel注册到nioSelector，监听读事件
           configureNewConnections()
-          // register any new responses for writing
+          // register any new responses for writing 为响应注册写事件
           processNewResponses()
           poll()
           processCompletedReceives()
@@ -851,6 +854,7 @@ private[kafka] class Processor(val id: Int,
 
   private def processNewResponses(): Unit = {
     var currentResponse: RequestChannel.Response = null
+    // 取出响应
     while ({currentResponse = dequeueResponse(); currentResponse != null}) {
       val channelId = currentResponse.request.context.connectionId
       try {
@@ -873,6 +877,7 @@ private[kafka] class Processor(val id: Int,
             trace("Closing socket connection actively according to the response code.")
             close(channelId)
           case _: StartThrottlingResponse =>
+            // Throttling ˈθrɒt(ə)lɪŋ 节流，调节，限制
             handleChannelMuteEvent(channelId, ChannelMuteEvent.THROTTLE_STARTED)
           case _: EndThrottlingResponse =>
             // Try unmuting the channel. The channel will be unmuted only if the response has already been sent out to
@@ -902,6 +907,7 @@ private[kafka] class Processor(val id: Int,
     // removed from the Selector after discarding any pending staged receives.
     // `openOrClosingChannel` can be None if the selector closed the connection because it was idle for too long
     if (openOrClosingChannel(connectionId).isDefined) {
+      // TODO 发送响应
       selector.send(responseSend)
       inflightResponses += (connectionId -> response)
     }
@@ -1065,10 +1071,14 @@ private[kafka] class Processor(val id: Int,
    */
   private def configureNewConnections(): Unit = {
     var connectionsProcessed = 0
+    // 每次执行次数不超过队列大小
     while (connectionsProcessed < connectionQueueSize && !newConnections.isEmpty) {
+      // 取出 channel
       val channel = newConnections.poll()
       try {
         debug(s"Processor $id listening to new connection from ${channel.socket.getRemoteSocketAddress}")
+        // TODO Socket 封装了 SocketChannelImpl 和 InputStream, Socket 数据读取最终是通过 SocketChannelImpl 读取
+        // connectionId 由本地ip+端口、远程ip+端口+connectionIndex 组成唯一值
         selector.register(connectionId(channel.socket), channel)
         connectionsProcessed += 1
       } catch {
@@ -1095,8 +1105,10 @@ private[kafka] class Processor(val id: Int,
 
   // 'protected` to allow override for testing
   protected[network] def connectionId(socket: Socket): String = {
+    // 获取本地 IP 和 端口
     val localHost = socket.getLocalAddress.getHostAddress
     val localPort = socket.getLocalPort
+    // 获取远程端 IP 和 端口
     val remoteHost = socket.getInetAddress.getHostAddress
     val remotePort = socket.getPort
     val connId = ConnectionId(localHost, localPort, remoteHost, remotePort, nextConnectionIndex).toString
@@ -1109,7 +1121,9 @@ private[kafka] class Processor(val id: Int,
     wakeup()
   }
 
+  // dequeue 出队，离队
   private def dequeueResponse(): RequestChannel.Response = {
+    // 从响应队列里面取出 response
     val response = responseQueue.poll()
     if (response != null)
       response.request.responseDequeueTimeNanos = Time.SYSTEM.nanoseconds
