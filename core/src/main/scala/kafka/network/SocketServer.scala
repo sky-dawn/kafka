@@ -90,13 +90,15 @@ class SocketServer(val config: KafkaConfig,
   private val memoryPoolDepletedTimeMetricName = metrics.metricName("MemoryPoolDepletedTimeTotal", MetricsGroup)
   memoryPoolSensor.add(new Meter(TimeUnit.MILLISECONDS, memoryPoolDepletedPercentMetricName, memoryPoolDepletedTimeMetricName))
   private val memoryPool = if (config.queuedMaxBytes > 0) new SimpleMemoryPool(config.queuedMaxBytes, config.socketRequestMaxBytes, false, memoryPoolSensor) else MemoryPool.NONE
-  // data-plane
+  // data-plane TODO 处理数据类请求
   private val dataPlaneProcessors = new ConcurrentHashMap[Int, Processor]()
   private[network] val dataPlaneAcceptors = new ConcurrentHashMap[EndPoint, Acceptor]()
+  // 创建RequestChannel, maxQueuedRequests -> Defaults.QueuedMaxRequests 500
   val dataPlaneRequestChannel = new RequestChannel(maxQueuedRequests, DataPlaneMetricPrefix)
-  // control-plane
+  // control-plane  TODO 处理控制类请求
   private var controlPlaneProcessorOpt : Option[Processor] = None
   private[network] var controlPlaneAcceptorOpt : Option[Acceptor] = None
+  // 创建RequestChannel
   val controlPlaneRequestChannelOpt: Option[RequestChannel] = config.controlPlaneListenerName.map(_ => new RequestChannel(20, ControlPlaneMetricPrefix))
 
   private var nextProcessorId = 0
@@ -785,6 +787,7 @@ private[kafka] class Processor(val id: Int,
       case reconfigurable: Reconfigurable => config.addReconfigurable(reconfigurable)
       case _ =>
     }
+    // TODO 创建了多路复用器及其它信息
     new KSelector(
       maxRequestSize,
       connectionsMaxIdleMs,
@@ -811,14 +814,52 @@ private[kafka] class Processor(val id: Int,
       while (isRunning) {
         try {
           // setup any new connections that have been queued up
-          // 配置新的连接，并将channel注册到nioSelector，监听读事件
+          // 配置新的连接，并将channel注册到 selector，监听读事件
           configureNewConnections()
           // register any new responses for writing 为响应注册写事件
+          /**
+           * 从 Processor 的 responseQueue 阻塞队列获取 RequestChannel.Response ,
+           * 若有响应并需要发送 Response , 则将其设置到 KafkaChannel ，
+           * KafkaChannel则通过监听 SelectionKey.OP_WRITE ， 最后调用 writeTo 发送。
+            */
           processNewResponses()
+          // 在不阻塞的情况下对每个连接执行任何 I/O 操作。这包括完成连接、完成断开连接、启动新发送或在进行中的发送或接收上取得进展。
+          // 当此调用完成时，用户可以使用completedSends() 、 completedReceives() 、 connected() 、 disconnected()检查已完成的发送、接收、连接或断开连接。
+          /**
+           * 调用 selector.poll 将监听到的事件批量处理,它才是执行I/O请求的最终地方,
+           * 它正对每个连接执行任何的I/O操作,这包括了 完成连接、完成断开连接、启动新发送等等。
+           * 像校验身份信息,还有handshake等等这些也都是在这里执行的。
+           */
           poll()
+          // 把请求解析后放到 requestChannels 队列中，异步处理
+          /**
+           * 处理所有completedReceives(已完成接收的)请求，进行接下来的处理
+           * 处理的方式是解析收到的请求,最终调用了 requestChannel.sendRequest(req).
+           * 也就是说所有的请求最终通过解析放入到了RequestChannel中的requestQueue阻塞队列中,
+           * 这个阻塞队列的大小为queued.max.requests默认500
+           */
           processCompletedReceives()
+
+          /**
+           * 它负责处理 Response 的回调逻辑，通过遍历completedSends(已完成发送)集合
+           * 可以从inflightResponses中移除并拿到response对象,然后再调用回调逻辑。 PS: 这个completedSends 是在 poll()方法中添加的元素。
+           */
           processCompletedSends()
+
+          /**
+           * 处理断开链接的情况, connectionQuotas连接限流减掉这个链接，inflightResponses也移除对应连接。
+           */
           processDisconnected()
+
+          /**
+           * 关闭超过连接限制的连接 ，当总连接数 >max.connections && (inter.broker.listener.name!=listener|| listeners 数量==1) 则需要关闭一些连接.
+           * 简单来说就是：就算Broker已经达到了最大连接数的限制了, 也应该允许 broker之间监听器上的连接,
+           * 这种情况下,将会关闭另外一个监听器上最近最少使用的连接。broker之间的监听器是配置 inter.broker.listener.name 决定的
+           * 所谓优先关闭，是指在诸多 TCP 连接中找出最近未被使用的那个。
+           * 这里“未被使用”就是说，在最近一段时间内，没有任何 Request 经由这个连接被发送到 Processor 线程。
+           *
+           * excess ɪkˈses 超过，过量，暴行，无节制
+           */
           closeExcessConnections()
         } catch {
           // We catch all the throwables here to prevent the processor thread from exiting. We do this because
@@ -907,7 +948,7 @@ private[kafka] class Processor(val id: Int,
     // removed from the Selector after discarding any pending staged receives.
     // `openOrClosingChannel` can be None if the selector closed the connection because it was idle for too long
     if (openOrClosingChannel(connectionId).isDefined) {
-      // TODO 发送响应
+      // TODO 发送响应，底层是将 responseSend 设置到 KafkaChannel中，并未真正发送
       selector.send(responseSend)
       inflightResponses += (connectionId -> response)
     }

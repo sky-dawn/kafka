@@ -272,10 +272,19 @@ object RequestChannel extends Logging {
   }
 }
 
+/**
+ * 在SocketServer中实例化，分为 data-plane 和 control-plane 2种
+ * {@link SocketServer.dataPlaneRequestChannel}
+ * {@link SocketServer.controlPlaneRequestChannelOpt}
+ * @param queueSize data-plane 默认500, 通过queued.max.requests配置， control-plane 默认50
+ * @param metricNamePrefix
+ */
 class RequestChannel(val queueSize: Int, val metricNamePrefix : String) extends KafkaMetricsGroup {
   import RequestChannel._
   val metrics = new RequestChannel.Metrics
+  // 保存待处理的请求
   private val requestQueue = new ArrayBlockingQueue[BaseRequest](queueSize)
+  // 保存所有的processor
   private val processors = new ConcurrentHashMap[Int, Processor]()
   val requestQueueSizeMetricName = metricNamePrefix.concat(RequestQueueSizeMetric)
   val responseQueueSizeMetricName = metricNamePrefix.concat(ResponseQueueSizeMetric)

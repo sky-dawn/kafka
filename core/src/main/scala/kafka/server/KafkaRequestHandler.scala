@@ -32,6 +32,8 @@ import scala.collection.JavaConverters._
 
 /**
  * A thread that answers kafka requests.
+ * 请求处理类, 每个Handler都会去 requestChannel的requestQueue队列里面poll请求,
+ * 然后去处理，最终调用的处理方法是KafkaApis.handle()
  */
 class KafkaRequestHandler(id: Int,
                           brokerId: Int,
@@ -93,6 +95,17 @@ class KafkaRequestHandler(id: Int,
 
 }
 
+/**
+ * {@link KafkaServer.startup()} 在这里创建
+ *
+ * @param brokerId
+ * @param requestChannel
+ * @param apis
+ * @param time
+ * @param numThreads
+ * @param requestHandlerAvgIdleMetricName
+ * @param logAndThreadNamePrefix
+ */
 class KafkaRequestHandlerPool(val brokerId: Int,
                               val requestChannel: RequestChannel,
                               val apis: KafkaApis,
